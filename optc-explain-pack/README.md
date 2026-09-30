@@ -11,10 +11,11 @@ Yêu cầu: `torch`, `transformers` (4.4x hoặc 5.x), `scikit-learn`, `tokenize
 | `tech_preconditions.json` | Cơ sở tri thức φt: 10 technique, 28 clause |
 | `kb.py` | Kiểm φt, tính C(E), witness, rút gọn tối thiểu, kiểm entailment và counterfactual, đánh dấu field do hệ thống ghi nhận (attested) |
 | `slm.py` | Chấm logprob có cache prefix, chat template, sinh văn bản |
-| `eve.py` | `run`: 5 mode (`eve`, `anchored`, `json_enum`, `json`, `free`). `kbstats`: thống kê KB, không cần model |
+| `eve.py` | `run`: 6 mode (`eve`, `anchored`, `json_enum`, `json`, `free`, `kb_only`; `kb_only` không cần `--model`). `kbstats`: thống kê KB, không cần model |
 | `eval_eve.py` | Verdict AUC/FPR, TTP so với majority, evidence so với hint/gold, bootstrap CI |
 | `conformal.py` | Tập technique có bảo đảm phủ, bản weighted cho LAB→REAL, phân rã lỗi (Định lý 3) |
 | `make_splits.py` | Tạo tập đánh giá cân theo độ dài, bản ngẫu nhiên, dev, calib, nontrivial, kèm manifest |
+| `attackdata_to_eve.py` | Chuyển log Sysmon của Splunk attack_data sang schema adgen-v2 (nhãn technique độc lập, STT 43) |
 | `inject.py` | RQ4: tạo dữ liệu bị chèn chuỗi tấn công, so tỉ lệ bị lật |
 | `tests/` | `test_kb.py` (không cần model), `smoke.py` (đầu-cuối với model tí hon) |
 
@@ -57,6 +58,15 @@ python eval_eve.py --results results/q05_REAL_*.jsonl --data <balanced_REAL> --d
 ```
 Thêm `--gold gold.jsonl` khi có nhãn tay. Mỗi dòng gold có dạng `{"sample_id", "techniques": [...], "evidence": [{"event", "field"}]}`.
 
+**3b. Ablation không dùng model (bắt buộc cho RQ1).** Cùng C(E), chọn technique bằng luật cố định thay cho SLM. So với `eve` để đo phần đóng góp của SLM:
+```
+for r in specific first alpha; do
+  python eve.py run --data <balanced_REAL> --mode kb_only --kb_rule $r --out results/kb_only_$r.jsonl
+done
+python eval_eve.py --results results/q05_REAL_eve.jsonl results/kb_only_*.jsonl --data <balanced_REAL>
+```
+`specific`: chọn witness nhiều field nhất (đặc hiệu nhất). `first`: event sớm nhất. `alpha`: theo mã technique. Verdict của `kb_only` là số technique trong C(E), dùng làm baseline verdict thuần luật.
+
 **4. RQ2: conformal (E6).** Chạy `eve` trên LAB (calib) và REAL (test):
 ```
 python conformal.py --calib results/q05_LAB_eve.jsonl --test results/q05_REAL_eve.jsonl --weighted --calib_data <LAB> --test_data <REAL> --out results/conformal_q05.json
@@ -82,3 +92,30 @@ Lặp lại với `--attested_only` (bản chỉ dùng field do hệ thống ghi
 - `--attested_only`.
 - `--resume`.
 - `--attack_map` (dùng `attack_id_map_v15.json` để kiểm ID technique của mode sinh).
+
+## Dataset độc lập: Splunk attack_data (STT 43)
+
+Nhãn technique lấy từ file `.yml` của từng dataset (theo cách tạo dữ liệu), độc lập với nhãn LLM. Chỉ đo TTP, không có evidence gold.
+
+**1. Tải repo, chưa tải log (log dùng Git LFS):**
+```
+git lfs install --skip-smudge
+git clone --filter=blob:none https://github.com/splunk/attack_data
+```
+**2. Liệt kê file Sysmon cần tải, rồi tải đúng các file đó:**
+```
+python attackdata_to_eve.py list --root <attack_data> > lfs_files.txt
+```
+PowerShell: `cd <attack_data>; git lfs pull --include=((Get-Content ..\lfs_files.txt) -join ',')`
+
+**3. Chuyển đổi, rồi chạy như AD-GEN:**
+```
+python attackdata_to_eve.py convert --root <attack_data> --out attackdata.jsonl
+python eve.py kbstats --data attackdata.jsonl --out results/kbstats_attackdata.json
+python eve.py run --data attackdata.jsonl --model <M> --mode eve --out results/q05_attackdata_eve.jsonl
+python eve.py run --data attackdata.jsonl --mode kb_only --out results/kb_only_attackdata.jsonl
+python eval_eve.py --results results/q05_attackdata_eve.jsonl results/kb_only_attackdata.jsonl --data attackdata.jsonl
+```
+Kiểm tra `attackdata.jsonl.manifest.json`: `file_stats` (không còn `file_lfs_pointer`), `alerts_per_technique`, `alerts_by_label_source`.
+
+Cách chọn alert: `tree` là cây tiến trình con của lệnh chạy test (Invoke-AtomicTest), dùng cho dataset atomic_red_team; `rare` là tiến trình có cặp Image + CommandLine ít xuất hiện giữa các file, dùng cho dataset khác. Nhãn ở mức file nên có thể có alert không mang dấu vết của technique; đây là hạn chế cần ghi trong paper. Trường `RuleName` của Sysmon (chứa gợi ý technique) bị loại khỏi input của model.
