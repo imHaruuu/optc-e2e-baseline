@@ -19,7 +19,8 @@ VERDICT_HEAD = '{"verdict": "'
 TECH_HEAD = '{"verdict": "malicious", '
 EVID_RE = re.compile(r'E(\d+)\.([A-Za-z]+)=([^"\]\n]+)')
 TECH_RE = re.compile(r"T\d{4}(?:\.\d{3})?")
-MODES = ("eve", "anchored", "json_enum", "json", "free")
+MODES = ("eve", "anchored", "json_enum", "json", "free", "kb_only")
+KB_RULES = ("specific", "first", "alpha")
 
 
 def read_jsonl(path):
@@ -223,6 +224,53 @@ class Explainer:
         return out
 
 
+class KBOnly:
+    def __init__(self, kb, rule="specific", attested_only=False):
+        if rule not in KB_RULES:
+            raise ValueError(rule)
+        self.kb, self.rule, self.attested_only = kb, rule, attested_only
+        self.mode = "kb_only"
+        self.cf_margin = None
+
+    def pick(self, ws):
+        if self.rule == "first":
+            return min(ws, key=lambda w: (w.event, w.technique))
+        if self.rule == "alpha":
+            return min(ws, key=lambda w: (w.technique, w.event))
+        return min(ws, key=lambda w: (-len(w.evidence), not w.attested, w.event, w.technique))
+
+    def explain(self, rec):
+        t0 = time.time()
+        ws = self.kb.witnesses(rec["events"])
+        if self.attested_only:
+            ws = [w for w in ws if w.attested]
+        cands = sorted({w.technique for w in ws})
+        if ws:
+            w = self.pick(ws)
+            out = {"technique": w.technique, "technique_sub": w.sub,
+                   "technique_probs": {t: 1.0 / len(cands) for t in cands}, "candidates": cands,
+                   "evidence": w.as_items(), "witness_clause": w.clause, "evidence_attested": w.attested,
+                   "status": "entailed", "n_witnesses": len(ws)}
+        else:
+            out = {"technique": None, "technique_sub": None, "technique_probs": {}, "candidates": [],
+                   "evidence": [], "witness_clause": None, "status": "undetermined", "n_witnesses": 0}
+        t = out["technique"]
+        ev = out["evidence"]
+        out["entailment_ok"] = bool(t) and self.kb.entails(t, ev)
+        out["minimal_ok"] = out["entailment_ok"] and self.kb.minimal(t, ev)
+        out["kb_candidates"] = cands
+        score = float(len(cands))
+        out.update({
+            "sample_id": rec.get("sample_id"), "env": rec.get("env"), "mode": "kb_only", "kb_rule": self.rule,
+            "model": None, "label": rec.get("label"), "attested_only": self.attested_only,
+            "gold_techniques": rec.get("techniques_base") or [],
+            "verdict_margin_raw": score, "verdict_margin": score,
+            "verdict": "malicious" if score > 0 else "benign",
+            "n_events": len(rec["events"]), "latency_ms": round(1000 * (time.time() - t0), 1),
+        })
+        return out
+
+
 def load_valid_ids(path):
     if not path or not Path(path).exists():
         return None
@@ -231,12 +279,18 @@ def load_valid_ids(path):
 
 
 def cmd_run(a):
-    from slm import Scorer
     kb = KB(a.kb)
-    scorer = Scorer(a.model, device=a.device, dtype=a.dtype, batch_size=a.batch_size,
-                    max_len=a.max_len, threads=a.threads, prefix_cache=not a.no_prefix_cache)
-    ex = Explainer(scorer, kb, a.mode, a.max_witnesses, a.max_spans, a.topk_evidence,
-                   a.max_new_tokens, load_valid_ids(a.attack_map), a.attested_only)
+    scorer = None
+    if a.mode == "kb_only":
+        ex = KBOnly(kb, a.kb_rule, a.attested_only)
+    else:
+        if not a.model:
+            raise SystemExit(f"--model is required for mode {a.mode}")
+        from slm import Scorer
+        scorer = Scorer(a.model, device=a.device, dtype=a.dtype, batch_size=a.batch_size,
+                        max_len=a.max_len, threads=a.threads, prefix_cache=not a.no_prefix_cache)
+        ex = Explainer(scorer, kb, a.mode, a.max_witnesses, a.max_spans, a.topk_evidence,
+                       a.max_new_tokens, load_valid_ids(a.attack_map), a.attested_only)
     done = set()
     out_path = Path(a.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -273,10 +327,10 @@ def cmd_run(a):
                "entailment_ok_rate_among_predicted": stats["entailment_ok"] / max(stats["with_technique"], 1), "verdict_tie_rate": stats["verdict_tie"] / n,
                "latency_ms_mean": sum(lat) / len(lat) if lat else None,
                "latency_ms_p90": sorted(lat)[int(0.9 * (len(lat) - 1))] if lat else None,
-               "cf_verdict_margin": ex.cf_margin, "n_forward": scorer.n_forward}
+               "cf_verdict_margin": ex.cf_margin, "n_forward": scorer.n_forward if scorer else 0}
     Path(str(out_path) + ".summary.json").write_text(json.dumps(summary, indent=1), encoding="utf-8")
     print(json.dumps(summary, indent=1))
-    if summary["verdict_tie_rate"] > 0.01:
+    if a.mode != "kb_only" and summary["verdict_tie_rate"] > 0.01:
         print("WARNING verdict tie rate > 1%: check dtype/numerics", file=sys.stderr)
 
 
@@ -341,7 +395,8 @@ def main(argv=None):
     sub = ap.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run")
     r.add_argument("--data", required=True)
-    r.add_argument("--model", required=True)
+    r.add_argument("--model", default=None)
+    r.add_argument("--kb_rule", choices=KB_RULES, default="specific")
     r.add_argument("--mode", choices=MODES, default="eve")
     r.add_argument("--kb", default=str(Path(__file__).with_name("tech_preconditions.json")))
     r.add_argument("--out", required=True)
