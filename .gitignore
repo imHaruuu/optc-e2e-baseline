@@ -16,8 +16,7 @@ P1/Output/models/*/checkpoint-*/optimizer.pt
 P1/Output/models/*/checkpoint-*/scaler.pt
 P1/Output/models/*/checkpoint-*/scheduler.pt
 # 5-fold CV model checkpoints
-P1/Output/models/*/*-fold-*/*.safetensors
-P1/Output/models/*/*-fold-*/checkpoint-*
+P1/Output/models/*/*-fold-*/P1/Output/models/*/*-fold-*/checkpoint-*
 P1/Output/models/bert-150m/S*_all*-fold-*/
 P1/Output/models/bert-150m/S*_ge*-fold-*/
 P1/Output/models/bert-150m/S3v2-fold-*/
@@ -60,7 +59,6 @@ optc-explain-pack/attack_data/
 *.gz
 
 # === Model weights / binaries (never commit, large) — safety globals ===
-*.safetensors
 *.gguf
 *.onnx
 
