@@ -1,5 +1,5 @@
 #!/bin/bash
-# 6 run — AD-GEN 704 mau, constrained logprob
+# 6 run — AD-GEN 704 mau, constrained logprob (0.5B 2-shot, 0.5B 3-shot, TinyLlama 1.1B, 1.5B, 7B bf16, 0.5B INT8)
 set -u
 cd "$(dirname "$0")"
 mkdir -p output logs

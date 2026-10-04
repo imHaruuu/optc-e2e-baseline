@@ -1,6 +1,8 @@
-"""Chay mot lenh (vd eve.py run) trong process rieng, lay mau RSS bang psutil.
+"""Chay mot script Python (vd eve.py run) trong process rieng bang chinh interpreter hien tai, lay mau RSS bang psutil.
+Chi chay file .py co that (khong nhan lenh shell tuy y).
 
-  python measure_rss.py --out mem.json -- python eve.py run --data T --model M --device cpu ...
+  python measure_rss.py --out mem.json -- eve.py run --data T --model M --device cpu ...
+  python measure_rss.py --out mem.json -- python eve.py run ...   # 'python' o dau duoc bo qua
 """
 import argparse
 import json
@@ -29,10 +31,16 @@ def main(argv=None):
     ap.add_argument("cmd", nargs=argparse.REMAINDER)
     a = ap.parse_args(argv)
     cmd = a.cmd[1:] if a.cmd[:1] == ["--"] else a.cmd
+    if cmd and Path(cmd[0]).name.lower().startswith("python") and Path(cmd[0]).suffix.lower() in ("", ".exe"):
+        cmd = cmd[1:]
     if not cmd:
-        ap.error("thieu lenh sau --")
+        ap.error("thieu script .py sau --")
+    script = Path(cmd[0])
+    if script.suffix.lower() != ".py" or not script.is_file():
+        ap.error(f"'{cmd[0]}' khong phai file .py ton tai")
+    cmd = [sys.executable, str(script.resolve()), *cmd[1:]]
     t0 = time.time()
-    proc = subprocess.Popen(cmd)
+    proc = subprocess.Popen(cmd, shell=False)
     p = psutil.Process(proc.pid)
     samples = []
     while proc.poll() is None:
