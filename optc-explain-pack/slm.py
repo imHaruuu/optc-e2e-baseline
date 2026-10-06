@@ -1,4 +1,5 @@
 import copy
+import os
 import re
 import time
 
@@ -41,6 +42,11 @@ class Scorer:
             torch.set_num_threads(int(threads))
         self.device = torch.device(device)
         self.dtype = DTYPES[dtype]
+        if self.device.type == "cuda":
+            # Windows: vuot VRAM bi day sang RAM he thong (cham 10-20x) thay vi OOM; chan o 92% de OOM that va giam batch
+            frac = float(os.environ.get("EVE_CUDA_MEM_FRACTION", "0.92"))
+            if 0 < frac < 1:
+                torch.cuda.set_per_process_memory_fraction(frac, self.device.index or 0)
         self.tok = AutoTokenizer.from_pretrained(model_path, trust_remote_code=trust_remote_code, revision=revision)
         if self.tok.pad_token_id is None:
             self.tok.pad_token = self.tok.eos_token
