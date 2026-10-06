@@ -1,4 +1,5 @@
 import copy
+import re
 import time
 
 import torch
@@ -7,12 +8,15 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 DTYPES = {"float32": torch.float32, "fp32": torch.float32, "bfloat16": torch.bfloat16,
           "bf16": torch.bfloat16, "float16": torch.float16, "fp16": torch.float16}
+# the suy nghi con mo o cuoi generation prompt (vd K2-Horizon luon mo <ifm|think>, khong co cong tac tat)
+OPEN_THINK_RE = re.compile(r"<([\w|]*think\w*)>\s*$")
 
 
-def _load_model(path, dtype, device):
+def _load_model(path, dtype, device, trust_remote_code=False, revision=None):
     major, minor = (int(x) for x in transformers.__version__.split(".")[:2])
     key = "dtype" if (major, minor) >= (4, 56) else "torch_dtype"
-    m = AutoModelForCausalLM.from_pretrained(path, low_cpu_mem_usage=True, **{key: dtype})
+    m = AutoModelForCausalLM.from_pretrained(path, low_cpu_mem_usage=True, trust_remote_code=trust_remote_code,
+                                             revision=revision, **{key: dtype})
     m = m.to(device).eval()
     got = next(m.parameters()).dtype
     if got != dtype:
@@ -32,15 +36,15 @@ def _expand_cache(cache, n):
 
 class Scorer:
     def __init__(self, model_path, device="cpu", dtype="float32", batch_size=8,
-                 max_len=4096, threads=None, prefix_cache=True):
+                 max_len=4096, threads=None, prefix_cache=True, trust_remote_code=False, revision=None):
         if threads:
             torch.set_num_threads(int(threads))
         self.device = torch.device(device)
         self.dtype = DTYPES[dtype]
-        self.tok = AutoTokenizer.from_pretrained(model_path)
+        self.tok = AutoTokenizer.from_pretrained(model_path, trust_remote_code=trust_remote_code, revision=revision)
         if self.tok.pad_token_id is None:
             self.tok.pad_token = self.tok.eos_token
-        self.model = _load_model(model_path, self.dtype, self.device)
+        self.model = _load_model(model_path, self.dtype, self.device, trust_remote_code, revision)
         self.batch_size = batch_size
         self.max_len = max_len
         self.prefix_cache = prefix_cache
@@ -52,6 +56,9 @@ class Scorer:
         if getattr(self.tok, "chat_template", None):
             # enable_thinking=False: Qwen3 se mo <think> neu khong tat; template khac bo qua bien nay
             p = self.tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True, enable_thinking=False)
+            m = OPEN_THINK_RE.search(p)
+            if m:
+                p = p[:m.end()] + f"</{m.group(1)}>"
         else:
             p = f"{system}\n\n{user}\n\n"
         return p + assistant_prefix

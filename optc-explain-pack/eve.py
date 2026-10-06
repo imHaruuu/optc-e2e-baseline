@@ -389,7 +389,8 @@ def cmd_run(a):
             raise SystemExit("--model is required except for --mode kb_only")
         from slm import Scorer
         scorer = Scorer(a.model, device=a.device, dtype=a.dtype, batch_size=a.batch_size,
-                        max_len=a.max_len, threads=a.threads, prefix_cache=not a.no_prefix_cache)
+                        max_len=a.max_len, threads=a.threads, prefix_cache=not a.no_prefix_cache,
+                        trust_remote_code=a.trust_remote_code, revision=a.revision)
         ex = Explainer(scorer, kb, a.mode, a.max_witnesses, a.max_spans, a.topk_evidence,
                        a.max_new_tokens, load_valid_ids(a.attack_map), a.attested_only)
         explain = ex.explain
@@ -514,6 +515,8 @@ def main(argv=None):
     r.add_argument("--max_len", type=int, default=4096)
     r.add_argument("--threads", type=int, default=None)
     r.add_argument("--no_prefix_cache", action="store_true")
+    r.add_argument("--trust_remote_code", action="store_true", help="cho model co code rieng tren HF (doc code truoc khi bat)")
+    r.add_argument("--revision", default=None, help="commit HF de ghim dung ban model/code da kiem tra")
     r.add_argument("--max_witnesses", type=int, default=24)
     r.add_argument("--max_spans", type=int, default=48)
     r.add_argument("--topk_evidence", type=int, default=2)
