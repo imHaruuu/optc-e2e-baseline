@@ -25,6 +25,7 @@ Yêu cầu: `torch`, `transformers` (4.4x hoặc 5.x), `scikit-learn`, `tokenize
 | `kb_field_control.py` | Biến thể KB đối chứng chéo field: `anyfield` (khớp từ khóa ở mọi field), `cross<seed>` (đổi mỗi field sang field khác) |
 | `inject_persample.py` | Kiểm injection theo từng mẫu: technique đổi thì C(E)/evidence có đổi không, evidence có nằm trên field bị chèn không; tách theo nhãn |
 | `attackdata_stats.py`, `attackdata_silver_gold.py` | Mô tả tập attack_data; so nhãn silver (.yml) với gold (atomic test trong cây tiến trình), kappa, tách tree/rare |
+| `hwmon.py` | Theo dõi phần cứng khi chạy một script: CPU (tổng, core cao nhất, xung), RAM/swap, đĩa, mạng, riêng cây tiến trình (CPU, RSS, luồng, I/O) và GPU NVIDIA (tải, VRAM, nhiệt độ, công suất, xung). Mỗi lần chạy ghi một file riêng `<tag>_<thời điểm>.hw.json` (thông tin máy + nhãn + tóm tắt mean/p50/p95/max + toàn bộ mẫu theo thời gian), `--csv` thêm bản CSV; `show` in bảng tóm tắt |
 | `measure_rss.py` | Chạy một lệnh trong process riêng, lấy mẫu RSS bằng psutil (RAM thật trên CPU) |
 | `pareto_svg.py` | Vẽ lại Pareto từ CSV của `pareto_plot.py` thành SVG (nhãn tự tránh chồng, frontier bậc thang, cột tùy chọn `ci_lo`/`ci_hi` để vẽ CI) + xuất PNG qua Edge/Chrome headless |
 | `newrun.py` | Tạo thư mục kết quả riêng cho mỗi lần chạy: `results/<dataset>/<tag>/` (+ `logs/`, `run.json` ghi commit của thư mục code `--code` và số file chưa commit) |
